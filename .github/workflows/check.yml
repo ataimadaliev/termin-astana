@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       test:
-        description: "Тест: прислать сообщение в Telegram"
+        description: "Тест: прислать сообщение"
         type: boolean
         default: true
 
@@ -28,10 +28,12 @@ jobs:
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python check.py --test
       - name: Watch
         if: github.event_name == 'schedule' || !inputs.test
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python check.py
