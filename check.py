@@ -13,8 +13,9 @@ BASE = "https://appointment.bmeia.gv.at/"
 START_URL = BASE + "?fromSpecificInfo=True&Office=ASTANA"
 OFFICE = "ASTANA"
 CALENDAR_ID = "20213868"  # Aufenthaltstitel/Вид на жительство
-TOKEN = os.environ["TG_TOKEN"]
-CHAT_ID = os.environ["TG_CHAT_ID"]
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
+TOKEN = os.environ.get("TG_TOKEN", "")
+CHAT_ID = os.environ.get("TG_CHAT_ID", "")
 RUN_MINUTES = int(os.environ.get("RUN_MINUTES", "55"))   # сколько минут работает один запуск
 INTERVAL_SEC = int(os.environ.get("INTERVAL_SEC", "120"))  # пауза между проверками
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -40,11 +41,34 @@ def retry(fn, attempts=5):
             time.sleep(10 * (i + 1))
 
 
-def send(text):
+def send_ntfy(text):
+    req = urllib.request.Request(f"https://ntfy.sh/{NTFY_TOPIC}", data=text.encode("utf-8"),
+                                 headers={"Title": "Termin Astana", "Priority": "urgent",
+                                          "Click": START_URL})
+    retry(lambda: urllib.request.urlopen(req, timeout=30).read())
+
+
+def send_tg(text):
     data = urllib.parse.urlencode({"chat_id": CHAT_ID, "text": text,
                                    "disable_web_page_preview": "true"}).encode()
     retry(lambda: urllib.request.urlopen(
-        f"https://api.telegram.org/bot{TOKEN}/sendMessage", data, timeout=60).read())
+        f"https://api.telegram.org/bot{TOKEN}/sendMessage", data, timeout=30).read(), attempts=2)
+
+
+def send(text):
+    """Шлёт в ntfy (основной канал) и в Telegram (запасной). Ошибка — только если не дошло никуда."""
+    ok = False
+    for name, fn in (("ntfy", send_ntfy), ("telegram", send_tg)):
+        if name == "ntfy" and not NTFY_TOPIC or name == "telegram" and not TOKEN:
+            continue
+        try:
+            fn(text)
+            ok = True
+            print("отправлено:", name, flush=True)
+        except Exception as e:
+            print("не отправлено в", name, ":", e, flush=True)
+    if not ok:
+        raise RuntimeError("уведомление не доставлено ни в один канал")
 
 
 def check():
