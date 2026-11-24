@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -20,22 +21,46 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0 Safari/537.36")
 
 
+def retry(fn, attempts=5):
+    """Повторяет при временных сбоях сети и при 429 от Telegram."""
+    for i in range(attempts):
+        try:
+            return fn()
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or i == attempts - 1:
+                raise
+            m = re.search(r'"retry_after":\s*(\d+)', e.read().decode("utf-8", "replace"))
+            wait = int(m.group(1)) if m else 30
+            print("Telegram 429, жду", wait, "сек", flush=True)
+            time.sleep(wait + 1)
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            if i == attempts - 1:
+                raise
+            print("сбой сети:", e, "— повтор", flush=True)
+            time.sleep(10 * (i + 1))
+
+
 def send(text):
     data = urllib.parse.urlencode({"chat_id": CHAT_ID, "text": text,
                                    "disable_web_page_preview": "true"}).encode()
-    urllib.request.urlopen(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data, timeout=30).read()
+    retry(lambda: urllib.request.urlopen(
+        f"https://api.telegram.org/bot{TOKEN}/sendMessage", data, timeout=60).read())
 
 
 def check():
+    return retry(_check, attempts=3)
+
+
+def _check():
     jar = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
     opener.addheaders = [("User-Agent", UA)]
 
     def post(data):
-        with opener.open(BASE, urllib.parse.urlencode(data).encode(), timeout=30) as r:
+        with opener.open(BASE, urllib.parse.urlencode(data).encode(), timeout=45) as r:
             return r.read().decode("utf-8", "replace")
 
-    opener.open(START_URL, timeout=30).read()
+    opener.open(START_URL, timeout=45).read()
     base = {"Language": "ru", "Office": OFFICE, "CalendarId": CALENDAR_ID}
     post({**base, "Command": "дальше"})
     html = post({**base, "PersonCount": "1", "Command": "дальше"})
@@ -70,7 +95,10 @@ def main():
             errors += 1
             print("ошибка:", e, flush=True)
             if errors == 10:
-                send(f"⚠️ Бот не может проверить сайт записи уже ~20 минут: {e}")
+                try:
+                    send(f"⚠️ Бот не может проверить сайт записи уже ~20 минут: {e}")
+                except Exception as e2:
+                    print("не удалось отправить предупреждение:", e2, flush=True)
         time.sleep(INTERVAL_SEC)
 
 
