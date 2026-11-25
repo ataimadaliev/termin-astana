@@ -10,6 +10,10 @@ on:
         type: boolean
         default: true
 
+permissions:
+  contents: read
+  actions: write
+
 concurrency:
   group: termin
   cancel-in-progress: false
@@ -17,7 +21,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,4 +40,10 @@ jobs:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RUN_MINUTES: "345"
         run: python check.py
+      - name: Start next run
+        if: (success() || failure()) && (github.event_name == 'schedule' || !inputs.test)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run check.yml -R "${{ github.repository }}" -f test=false
